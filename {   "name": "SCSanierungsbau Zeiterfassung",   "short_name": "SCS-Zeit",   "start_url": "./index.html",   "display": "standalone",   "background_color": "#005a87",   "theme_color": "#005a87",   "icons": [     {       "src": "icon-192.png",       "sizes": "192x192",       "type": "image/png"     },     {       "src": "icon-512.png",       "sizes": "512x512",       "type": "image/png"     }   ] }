@@ -1,0 +1,36 @@
+const cacheName = 'scs-zeit-cache-v1';
+const filesToCache = [
+  './',
+  './index.html',
+  './manifest.json',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+  // Hier weitere Dateien wie CSS, Icons hinzufügen
+];
+
+// Install Event: Dateien cachen
+self.addEventListener('install', evt => {
+  evt.waitUntil(
+    caches.open(cacheName).then(cache => {
+      return cache.addAll(filesToCache);
+    })
+  );
+});
+
+// Aktivierung: alten Cache löschen
+self.addEventListener('activate', evt => {
+  evt.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(key => key !== cacheName)
+          .map(key => caches.delete(key))
+    ))
+  );
+});
+
+// Fetch: zuerst Cache, dann Netzwerk
+self.addEventListener('fetch', evt => {
+  evt.respondWith(
+    caches.match(evt.request).then(response => {
+      return response || fetch(evt.request);
+    })
+  );
+});
