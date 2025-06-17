@@ -1,0 +1,266 @@
+  <!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SCSanierungsbau - Zeiterfassung Mai 2025</title>
+
+<!-- PWA Meta -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#005a87" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+<style>
+  body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 10px; }
+  h1, h2 { text-align: center; }
+  button { font-size: 1.1em; padding: 8px 16px; margin: 8px 5px 15px 0; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+  th { background: #f0f0f0; }
+</style>
+</head>
+<body>
+
+<h1>SCSanierungsbau</h1>
+<h2>Zeiterfassung Mai 2025</h2>
+<p style="text-align:center; font-weight: bold;">Mitarbeiter: Amin Algaafar</p>
+
+<div style="text-align:center;">
+  <button id="startStopBtn">Start Arbeit</button>
+  <button id="pauseBtn" disabled>Pause starten</button>
+  <button id="pauseStopBtn" disabled>Pause stoppen</button>
+</div>
+
+<div style="text-align:center;">
+  <p><strong>Aktuelle Arbeitszeit heute:</strong> <span id="workTime">00:00:00</span></p>
+  <p><strong>Pause heute:</strong> <span id="pauseTime">00:00:00</span></p>
+</div>
+
+<h2>Tagesübersicht</h2>
+<table id="timeTable" aria-label="Arbeitszeiten Tabelle">
+  <thead>
+    <tr><th>Datum</th><th>Arbeitszeit</th><th>Pause</th><th>Nettozeit</th></tr>
+  </thead>
+  <tbody></tbody>
+  <tfoot>
+    <tr><th>Gesamt</th><th id="totalWork">00:00:00</th><th id="totalPause">00:00:00</th><th id="totalNetto">00:00:00</th></tr>
+  </tfoot>
+</table>
+
+<div style="text-align:center;">
+  <button id="exportCSV">Export CSV</button>
+  <button id="exportPDF">Export PDF (Monatszusammenfassung)</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  const { jsPDF } = window.jspdf;
+
+  let working = false;
+  let pausing = false;
+  let workStart = null;
+  let pauseStart = null;
+  let today = new Date().toISOString().slice(0,10);
+
+  let timeData = JSON.parse(localStorage.getItem('timeData')) || {};
+
+  function secondsToHMS(s) {
+    const h = Math.floor(s / 3600).toString().padStart(2,'0');
+    const m = Math.floor((s % 3600) / 60).toString().padStart(2,'0');
+    const sec = (s % 60).toString().padStart(2,'0');
+    return `${h}:${m}:${sec}`;
+  }
+
+  function updateDisplay() {
+    let dayData = timeData[today] || { workSeconds:0, pauseSeconds:0 };
+    let netSeconds = dayData.workSeconds - dayData.pauseSeconds;
+
+    document.getElementById('workTime').textContent = secondsToHMS(dayData.workSeconds);
+    document.getElementById('pauseTime').textContent = secondsToHMS(dayData.pauseSeconds);
+    document.getElementById('totalNetto').textContent = secondsToHMS(netSeconds);
+
+    let tbody = document.querySelector('#timeTable tbody');
+    tbody.innerHTML = '';
+    let totalWork = 0;
+    let totalPause = 0;
+    let totalNetto = 0;
+
+    let days = Object.keys(timeData).sort();
+
+    days.forEach(day => {
+      let d = timeData[day];
+      let netto = d.workSeconds - d.pauseSeconds;
+      totalWork += d.workSeconds;
+      totalPause += d.pauseSeconds;
+      totalNetto += netto;
+
+      let tr = document.createElement('tr');
+      tr.innerHTML = `<td>${day}</td><td>${secondsToHMS(d.workSeconds)}</td><td>${secondsToHMS(d.pauseSeconds)}</td><td>${secondsToHMS(netto)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('totalWork').textContent = secondsToHMS(totalWork);
+    document.getElementById('totalPause').textContent = secondsToHMS(totalPause);
+    document.getElementById('totalNetto').textContent = secondsToHMS(totalNetto);
+  }
+
+  function saveData() {
+    localStorage.setItem('timeData', JSON.stringify(timeData));
+  }
+
+  setInterval(() => {
+    if (working && workStart) {
+      let now = Date.now();
+      let elapsed = Math.floor((now - workStart)/1000);
+
+      let dayData = timeData[today] || { workSeconds:0, pauseSeconds:0 };
+      dayData.workSeconds += elapsed;
+      workStart = now;
+      timeData[today] = dayData;
+      saveData();
+      updateDisplay();
+    }
+
+    if (pausing && pauseStart) {
+      let now = Date.now();
+      let elapsedPause = Math.floor((now - pauseStart)/1000);
+      let dayData = timeData[today] || { workSeconds:0, pauseSeconds:0 };
+      dayData.pauseSeconds += elapsedPause;
+      pauseStart = now;
+      timeData[today] = dayData;
+      saveData();
+      updateDisplay();
+    }
+  }, 1000);
+
+  document.getElementById('startStopBtn').onclick = () => {
+    if (!working) {
+      workStart = Date.now();
+      working = true;
+      document.getElementById('startStopBtn').textContent = 'Arbeit stoppen';
+      document.getElementById('pauseBtn').disabled = false;
+    } else {
+      if (pausing) {
+        pauseStart = null;
+        pausing = false;
+        document.getElementById('pauseBtn').disabled = false;
+        document.getElementById('pauseStopBtn').disabled = true;
+      }
+      working = false;
+      workStart = null;
+      document.getElementById('startStopBtn').textContent = 'Start Arbeit';
+      document.getElementById('pauseBtn').disabled = true;
+      document.getElementById('pauseStopBtn').disabled = true;
+    }
+  };
+
+  document.getElementById('pauseBtn').onclick = () => {
+    if (!pausing && working) {
+      pauseStart = Date.now();
+      pausing = true;
+      document.getElementById('pauseBtn').disabled = true;
+      document.getElementById('pauseStopBtn').disabled = false;
+    }
+  };
+
+  document.getElementById('pauseStopBtn').onclick = () => {
+    if (pausing) {
+      pausing = false;
+      pauseStart = null;
+      document.getElementById('pauseBtn').disabled = false;
+      document.getElementById('pauseStopBtn').disabled = true;
+    }
+  };
+
+  document.getElementById('exportCSV').onclick = () => {
+    let csv = 'Datum,Arbeitszeit (HH:MM:SS),Pause (HH:MM:SS),Nettozeit (HH:MM:SS)\n';
+    let days = Object.keys(timeData).sort();
+    days.forEach(day => {
+      let d = timeData[day];
+      let netto = d.workSeconds - d.pauseSeconds;
+      csv += `${day},${secondsToHMS(d.workSeconds)},${secondsToHMS(d.pauseSeconds)},${secondsToHMS(netto)}\n`;
+    });
+
+    let blob = new Blob([csv], {type: 'text/csv'});
+    let url = URL.createObjectURL(blob);
+
+    let a = document.createElement('a');
+    a.href = url;
+    a.download = 'stundenzettel_mai_2025.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  document.getElementById('exportPDF').onclick = () => {
+    let doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text('SCSanierungsbau', 14, 22);
+    doc.setFontSize(14);
+    doc.text('Stundenzettel Mai 2025', 14, 32);
+    doc.setFontSize(12);
+    doc.text('Mitarbeiter: Amin Algaafar', 14, 40);
+
+    const days = Object.keys(timeData).sort();
+
+    let y = 50;
+    doc.setFontSize(11);
+    doc.text('Datum', 14, y);
+    doc.text('Arbeitszeit', 60, y);
+    doc.text('Pause', 110, y);
+    doc.text('Nettozeit', 150, y);
+
+    y += 6;
+
+    let totalWork = 0;
+    let totalPause = 0;
+    let totalNetto = 0;
+
+    days.forEach(day => {
+      if (y > 270) {  // Neue Seite
+        doc.addPage();
+        y = 20;
+      }
+      let d = timeData[day];
+      let netto = d.workSeconds - d.pauseSeconds;
+      totalWork += d.workSeconds;
+      totalPause += d.pauseSeconds;
+      totalNetto += netto;
+
+      doc.text(day, 14, y);
+      doc.text(secondsToHMS(d.workSeconds), 60, y);
+      doc.text(secondsToHMS(d.pauseSeconds), 110, y);
+      doc.text(secondsToHMS(netto), 150, y);
+      y += 8;
+    });
+
+    // Gesamt unten
+    if (y > 270) doc.addPage();
+    y += 10;
+    doc.setFontSize(12);
+    doc.text('Gesamt Arbeitszeit:', 14, y);
+    doc.text(secondsToHMS(totalWork), 60, y);
+    doc.text('Gesamt Pause:', 110, y);
+    doc.text(secondsToHMS(totalPause), 150, y);
+    y += 8;
+    doc.text('Gesamt Nettozeit:', 14, y);
+    doc.text(secondsToHMS(totalNetto), 60, y);
+
+    doc.save('stundenzettel_mai_2025.pdf');
+  };
+
+  updateDisplay();
+
+  // Service Worker Registrierung
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('Service Worker registriert', reg))
+        .catch(err => console.log('Service Worker Fehler:', err));
+    });
+  }
+</script>
+
+</body>
+</html>
